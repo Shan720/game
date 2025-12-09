@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>記憶配對遊戲 (6x6)</title>
+    
+    <!-- CSS 樣式 -->
+    <style>
+        /* 設定整個遊戲容器置中 */
+        .game-container {
+            max-width: 800px; /* 限制網格大小，可自行調整 */
+            margin: 40px auto;
+            text-align: center;
+            font-family: sans-serif;
+            padding: 10px;
+        }
+
+        /* 6x6 網格佈局 */
+        .card-grid {
+            display: grid;
+            /* 建立 6 欄均勻分佈的網格 */
+            grid-template-columns: repeat(6, 1fr); 
+            grid-gap: 10px; /* 卡片間距 */
+            padding: 10px;
+            background-color: #eee;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        }
+
+        /* 計分板樣式 */
+        .scoreboard {
+            margin: 20px 0;
+            font-size: 1.2em;
+            display: flex;
+            justify-content: space-around;
+            padding: 10px 0;
+            font-weight: bold;
+            color: #333;
+        }
+
+        /* 單張卡片容器 */
+        .card {
+            /* 讓卡片高度與寬度保持一致，形成正方形 */
+            width: 100%;
+            padding-bottom: 100%; /* 利用 padding-bottom 確保高度等於寬度 */
+            position: relative;
+            perspective: 1000px; /* 3D 翻轉視角 */
+            cursor: pointer;
+        }
+
+        /* 翻轉內部結構 */
+        .card-inner {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            text-align: center;
+            transition: transform 0.6s; /* 翻轉動畫速度 */
+            transform-style: preserve-3d; /* 讓子元素在 3D 空間中定位 */
+            border-radius: 6px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        /* 翻轉效果：當卡片被點擊 (js 加上 .flipped) 時，旋轉 180 度 */
+        .card.flipped .card-inner,
+        .card.matched .card-inner {
+            transform: rotateY(180deg);
+        }
+
+        /* 卡片正面和背面共用樣式 */
+        .card-face {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            backface-visibility: hidden; /* 隱藏卡片背面在正面時的顯示 */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2.5em; /* 圖案大小 */
+            border-radius: 6px;
+        }
+
+        /* 卡片背面 (未翻開) */
+        .card-back {
+            background-color: #4CAF50; /* 綠色背景 */
+            color: white;
+            font-size: 3em;
+            font-weight: bold;
+        }
+
+        /* 卡片正面 (翻開後) */
+        .card-front {
+            background-color: white;
+            color: #333;
+            transform: rotateY(180deg); /* 預先旋轉 180 度，讓它成為翻轉後的正面 */
+        }
+
+        /* 已配對的卡片樣式 (可選，讓它看起來淡出) */
+        .card.matched {
+            opacity: 0.5;
+            cursor: default;
+            pointer-events: none; /* 確保已配對的卡片不能再被點擊 */
+        }
+
+        /* 遊戲結束彈出視窗樣式 */
+        .game-over-modal {
+            display: none; /* 預設隱藏 */
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            padding: 30px;
+            background: white;
+            border: 3px solid #4CAF50;
+            border-radius: 10px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+            z-index: 100;
+            text-align: center;
+        }
+
+        .game-over-modal button {
+            padding: 10px 20px;
+            margin-top: 20px;
+            font-size: 1.1em;
+            cursor: pointer;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            transition: background-color 0.3s;
+        }
+
+        .game-over-modal button:hover {
+            background-color: #45a049;
+        }
+    </style>
+</head>
+<body>
+    <div class="game-container">
+        <h1>記憶配對挑戰 🧠</h1>
+        
+        <!-- 計分板 -->
+        <div class="scoreboard">
+            <span id="time">時間: 0 秒</span>
+            <span id="moves">翻牌次數: 0</span>
+        </div>
+
+        <!-- 卡片網格：這是所有 36 張卡片放置的地方 -->
+        <div class="card-grid" id="cardGrid">
+            <!-- 卡片將由 JavaScript 動態生成 -->
+        </div>
+
+        <!-- 遊戲結束訊息 (一開始隱藏) -->
+        <div class="game-over-modal" id="gameOverModal">
+            <h2>恭喜您！🎉</h2>
+            <p>您成功完成了所有配對！</p>
+            <p>總時間: <span id="finalTime"></span></p>
+            <p>總翻牌次數: <span id="finalMoves"></span></p>
+            <button id="restartButton">再玩一次</button>
+        </div>
+    </div>
+    
+    <!-- JavaScript 邏輯 -->
+    <script>
+        // 36 張卡片需要 18 對圖案
+        const cardEmojis = [
+            '🍎', '🍌', '🍇', '🍉', '🍓', '🍒',
+            '🍍', '🥭', '🥝', '🥥', '🥑', '🥦',
+            '🥕', '🌶️', '🥔', '🌽', '🍞', '🧀' 
+        ];
+
+        // 遊戲狀態變數和 DOM 元素引用 (使用 let 以便在 window.onload 中賦值)
+        let cardGrid;
+        let finalTimeSpan;
+        let finalMovesSpan;
+        let gameOverModal;
+        let timeSpan;
+        let movesSpan;
+        let restartButton; 
+
+        let gameBoard = []; // 儲存所有卡片的陣列
+        let firstCard = null; // 儲存翻開的第一張卡片
+        let secondCard = null; // 儲存翻開的第二張卡片
+        let lockBoard = false; // 防止在檢查配對時玩家繼續點擊
+        let matchesFound = 0; // 已配對成功的數量
+        let moves = 0; // 翻牌次數
+        let timer = null; // 計時器 ID
+        let seconds = 0; // 計時秒數
+
+        // --- 輔助函數 ---
+
+        /**
+         * Fisher-Yates 洗牌算法，用於打亂卡片順序
+         * @param {Array} array - 要打亂的陣列
+         */
+        function shuffle(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
+            }
+        }
+
+        /**
+         * 開始計時器
+         */
+        function startTimer() {
+            seconds = 0;
+            timer = setInterval(() => {
+                seconds++;
+                timeSpan.textContent = `時間: ${seconds} 秒`;
+            }, 1000);
+        }
+
+        /**
+         * 停止計時器
+         */
+        function stopTimer() {
+            clearInterval(timer);
+            timer = null;
+        }
+
+        // --- 遊戲邏輯 ---
+
+        /**
+         * 啟動或重新開始遊戲
+         */
+        function startGame() {
+            // 1. 重設狀態
+            stopTimer();
+            moves = 0;
+            matchesFound = 0;
+            movesSpan.textContent = `翻牌次數: 0`;
+            timeSpan.textContent = `時間: 0 秒`;
+            cardGrid.innerHTML = '';
+            gameOverModal.style.display = 'none';
+
+            // 2. 準備 6x6 (36 張) 的圖案
+            gameBoard = [...cardEmojis, ...cardEmojis]; 
+            shuffle(gameBoard);
+
+            // 3. 動態生成卡片
+            gameBoard.forEach((emoji, index) => {
+                const card = document.createElement('div');
+                card.classList.add('card');
+                card.dataset.name = emoji; // 將圖案存在 data-name 屬性
+                card.dataset.id = index;
+                card.innerHTML = `
+                    <div class="card-inner">
+                        <div class="card-face card-front">${emoji}</div>
+                        <div class="card-face card-back">?</div> <!-- 卡片背面標記 -->
+                    </div>
+                `;
+                card.addEventListener('click', flipCard);
+                cardGrid.appendChild(card);
+            });
+        }
+
+        /**
+         * 處理卡片點擊和翻轉
+         * @param {Event} event - 點擊事件
+         */
+        function flipCard(event) {
+            if (lockBoard) return; 
+            const clickedCard = event.currentTarget;
+
+            // 防止重複點擊同一張卡片 或 已配對的卡片
+            if (clickedCard === firstCard || clickedCard.classList.contains('matched')) return;
+
+            // 開始遊戲後才開始計時
+            if (timer === null && matchesFound === 0) {
+                startTimer();
+            }
+            
+            // 翻轉卡片
+            clickedCard.classList.add('flipped');
+
+            if (!firstCard) {
+                // 這是翻開的第一張卡片
+                firstCard = clickedCard;
+                return;
+            }
+
+            // 這是翻開的第二張卡片
+            secondCard = clickedCard;
+            moves++;
+            movesSpan.textContent = `翻牌次數: ${moves}`;
+            lockBoard = true; // 鎖定棋盤
+
+            // 檢查配對
+            checkForMatch();
+        }
+
+        /**
+         * 檢查兩張翻開的卡片是否配對
+         */
+        function checkForMatch() {
+            const isMatch = firstCard.dataset.name === secondCard.dataset.name;
+
+            if (isMatch) {
+                // 成功配對
+                disableCards();
+            } else {
+                // 配對失敗，蓋回卡片
+                unflipCards();
+            }
+        }
+
+        /**
+         * 處理配對成功
+         */
+        function disableCards() {
+            // 將配對成功的卡片標記為 matched
+            firstCard.classList.add('matched');
+            secondCard.classList.add('matched');
+            
+            matchesFound++;
+            resetBoard();
+
+            // 檢查是否所有卡片都配對成功 (18 對)
+            if (matchesFound === cardEmojis.length) {
+                stopTimer();
+                showGameOver();
+            }
+        }
+
+        /**
+         * 處理配對失敗，蓋回卡片
+         */
+        function unflipCards() {
+            // 等待 1 秒讓玩家看清圖案後再蓋回
+            setTimeout(() => {
+                // 確保卡片未被標記為 matched 才蓋回
+                if (!firstCard.classList.contains('matched')) {
+                    firstCard.classList.remove('flipped');
+                }
+                if (!secondCard.classList.contains('matched')) {
+                    secondCard.classList.remove('flipped');
+                }
+                resetBoard();
+            }, 1000); // 延遲 1000 毫秒 (1 秒)
+        }
+
+        /**
+         * 重設狀態，準備下一次翻牌
+         */
+        function resetBoard() {
+            [firstCard, secondCard, lockBoard] = [null, null, false];
+        }
+
+        /**
+         * 顯示遊戲結束畫面
+         */
+        function showGameOver() {
+            finalTimeSpan.textContent = `${seconds} 秒`;
+            finalMovesSpan.textContent = `${moves} 次`;
+            gameOverModal.style.display = 'block';
+        }
+
+        // 網頁載入後處理 DOM 元素和啟動遊戲
+        window.onload = function() {
+            // 1. 在 window.onload 中初始化所有 DOM 元素的引用
+            cardGrid = document.getElementById('cardGrid');
+            finalTimeSpan = document.getElementById('finalTime');
+            finalMovesSpan = document.getElementById('finalMoves');
+            gameOverModal = document.getElementById('gameOverModal');
+            timeSpan = document.getElementById('time');
+            movesSpan = document.getElementById('moves');
+            restartButton = document.getElementById('restartButton'); 
+
+            // 2. 啟動遊戲
+            startGame();
+            
+            // 3. 綁定重玩按鈕事件
+            if (restartButton) {
+                restartButton.addEventListener('click', startGame);
+            }
+        };
+    </script>
+</body>
+</html>
